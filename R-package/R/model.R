@@ -112,27 +112,36 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
                            begin.round, end.round, optimizer,
                            train.data, eval.data, metric,
                            epoch.end.callback, batch.end.callback,
-                           kvstore, fixed.param = NULL, verbose = TRUE) {
+                           kvstore, fixed.param = NULL, verbose = TRUE, is.bucket = FALSE) {
+  sym_list <- list()
+  if (is.bucket) {
+    if (!is.list(symbol)) stop ("A list of symbols required for bucket training")
+    sym_list <- symbol
+    symbol <- sym_list[[names(train.data$bucketID)]]
+  }
+  
   ndevice <- length(ctx)
   if(verbose) message(paste0("Start training with ", ndevice, " devices"))
   # create the executors
-  sliceinfo <- mx.model.slice.shape(input.shape, ndevice)
-  sliceinfo2 <- mx.model.slice.shape(output.shape, ndevice)
-
-  arg_names <- arguments(symbol)
-  label_name <- arg_names[endsWith(arg_names, "label")]
+  input.names <- names(input.shape)
+  output.names <- names(output.shape)
+  input_slice <- mx.model.slice.shape(input.shape, ndevice)
+  output_slice <- mx.model.slice.shape(output.shape, ndevice)
+  
   train.execs <- lapply(1:ndevice, function(i) {
     arg_lst <- list(symbol = symbol, ctx = ctx[[i]], grad.req = "write")
-    arg_lst <- append(arg_lst, sliceinfo[[i]]$shape)
-    arg_lst <- append(arg_lst, sliceinfo2[[i]]$shape)
+    arg_lst <- append(arg_lst, input_slice[[i]]$shape)
+    arg_lst <- append(arg_lst, output_slice[[i]]$shape)
     arg_lst[["fixed.param"]] = fixed.param
     do.call(mx.simple.bind, arg_lst)
   })
   # set the parameters into executors
   for (texec in train.execs) {
-    mx.exec.update.arg.arrays(texec, arg.params, match.name=TRUE)
-    mx.exec.update.aux.arrays(texec, aux.params, match.name=TRUE)
-  }
+    mx.exec.update.arg.arrays(texec, arg.params, match.name = TRUE)
+    mx.exec.update.aux.arrays(texec, aux.params, match.name = TRUE)
+  }    
+
+  
   # KVStore related stuffs
   params.index <-
     as.integer(mx.util.filter.null(
@@ -155,7 +164,7 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
   # input.names <- mx.model.check.arguments(symbol)
   arg_names <- arguments(symbol)
   label_name <- arg_names[endsWith(arg_names, "label")]
-
+  
   for (iteration in begin.round:end.round) {
     nbatch <- 0
     if (!is.null(metric)) {
@@ -165,14 +174,44 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
       # Get input data slice
       dlist <- train.data$value()
       slices <- lapply(1:ndevice, function(i) {
-        s <- sliceinfo[[i]]
+        s <- input_slice[[i]]
         ret <- sapply(names(dlist), function(n) {mx.nd.slice(dlist[[n]], s$begin, s$end)})
         return(ret)
       })
+      if (is.bucket) {
+        symbol <- sym_list[[names(train.data$bucketID)]]
+        input.names <- names(input.shape)
+        input.shape <- sapply(input.names, function(n){dim(train.data$value()[[n]])}, simplify = FALSE)
+
+        output.names <- names(output.shape)
+        output.shape <- list()
+        output.shape[[output.names]] <- dim((train.data$value())$label)
+
+        input_slice <- mx.model.slice.shape(input.shape, ndevice)
+        output_slice <- mx.model.slice.shape(output.shape, ndevice)
+        
+        train.execs <- lapply(1:ndevice, function(i) {
+          arg_lst <- list(symbol = symbol, ctx = ctx[[i]], grad.req = "write")
+          arg_lst <- append(arg_lst, input_slice[[i]]$shape)
+          arg_lst <- append(arg_lst, output_slice[[i]]$shape)
+          arg_lst[["fixed.param"]] <- fixed.param
+          
+          input.update <- sapply(input.names, function(n) {
+            mx.nd.zeros(input_slice[[i]]$shape[[n]], ctx[[1]])
+          }, simplify = FALSE, USE.NAMES = TRUE)
+          
+          tmp <- train.execs[[i]]$arg.arrays
+          tmp[names(input.update)] <- input.update
+          arg_lst[["arg.arrays"]] <- tmp
+          arg_lst[["aux.arrays"]] <- train.execs[[i]]$aux.arrays
+          do.call(mx.simple.bind, arg_lst)
+        })
+      }
       # copy data to executor
       for (i in 1:ndevice) {
         s <- slices[[i]]
         names(s)[endsWith(names(s), "label")] = label_name
+        s <- s[names(s) %in% arguments(symbol)]
         mx.exec.update.arg.arrays(train.execs[[i]], s, match.name=TRUE)
       }
       for (texec in train.execs) {
@@ -235,13 +274,43 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
       while (eval.data$iter.next()) {
         dlist <- eval.data$value()
         slices <- lapply(1:ndevice, function(i) {
-          s <- sliceinfo[[i]]
+          s <- input_slice[[i]]
           ret <- sapply(names(dlist), function(n) {mx.nd.slice(dlist[[n]], s$begin, s$end)})
           return(ret)
         })
+        if (is.bucket) {
+          symbol <- sym_list[[names(eval.data$bucketID)]]
+          input.names <- names(input.shape)
+          input.shape <- sapply(input.names, function(n){dim(eval.data$value()[[n]])}, simplify = FALSE)
+          
+          output.names <- names(output.shape)
+          output.shape <- list()
+          output.shape[[output.names]] <- dim((eval.data$value())$label)
+          
+          input_slice <- mx.model.slice.shape(input.shape, ndevice)
+          output_slice <- mx.model.slice.shape(output.shape, ndevice)
+          
+          train.execs <- lapply(1:ndevice, function(i) {
+            arg_lst <- list(symbol = symbol, ctx = ctx[[i]], grad.req = "write")
+            arg_lst <- append(arg_lst, input_slice[[i]]$shape)
+            arg_lst <- append(arg_lst, output_slice[[i]]$shape)
+            arg_lst[["fixed.param"]] <- fixed.param
+            
+            input.update <- sapply(input.names, function(n) {
+              mx.nd.zeros(input_slice[[i]]$shape[[n]], ctx[[1]])
+            }, simplify = FALSE, USE.NAMES = TRUE)
+            
+            tmp <- train.execs[[i]]$arg.arrays
+            tmp[names(input.update)] <- input.update
+            arg_lst[["arg.arrays"]] <- tmp
+            arg_lst[["aux.arrays"]] <- train.execs[[i]]$aux.arrays
+            do.call(mx.simple.bind, arg_lst)
+          })
+        }
         for (i in 1:ndevice) {
           s <- slices[[i]]
           names(s)[endsWith(names(s), "label")] = label_name
+          s <- s[names(s) %in% arguments(symbol)]
           mx.exec.update.arg.arrays(train.execs[[i]], s, match.name=TRUE)
         }
         for (texec in train.execs) {
@@ -266,12 +335,12 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
     }
     # get the model out
     model <- mx.model.extract.model(symbol, train.execs)
-
+    
     epoch_continue <- TRUE
     if (!is.null(epoch.end.callback)) {
       epoch_continue <- epoch.end.callback(iteration, 0, environment(), verbose = verbose)
     }
-
+    
     if (!epoch_continue) {
       break
     }
@@ -279,7 +348,13 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
   return(model)
 }
 
-# Initialize parameters
+#' Parameter initialization
+#' @param symbol The symbolic configuration of the neural network.
+#' @param input.shape The shape of the input for the neural network.
+#' @param output.shape The shape of the output for the neural network. It can be NULL.
+#' @param initializer, initializer object. The initialization scheme for parameters.
+#' @param ctx mx.context. The devices used to perform initialization.
+#' @export
 mx.model.init.params <- function(symbol, input.shape, output.shape, initializer, ctx) {
   if (!is.MXSymbol(symbol)) stop("symbol need to be MXSymbol")
 
@@ -296,7 +371,7 @@ mx.model.init.params <- function(symbol, input.shape, output.shape, initializer,
 
 # Initialize the data iter
 mx.model.init.iter <- function(X, y, batch.size, is.train) {
-  if (is.MXDataIter(X)) return(X)
+  if (is.mx.dataiter(X)) return(X)
   if (is.null(y)) {
     if (is.train) stop("Need to provide parameter y for training with R arrays.")
     shape <- dim(X)
@@ -503,14 +578,14 @@ function(symbol, X, y=NULL, ctx=NULL, begin.round=1,
   kvstore <- mx.model.create.kvstore(kvstore, params$arg.params, length(ctx), verbose=verbose)
   model <- mx.model.train(symbol, ctx, input.shape, output.shape,
                           params$arg.params, params$aux.params,
-                          begin.round, num.round, optimizer=optimizer,
-                          train.data=X, eval.data=eval.data,
-                          metric=eval.metric,
-                          epoch.end.callback=epoch.end.callback,
-                          batch.end.callback=batch.end.callback,
-                          kvstore=kvstore,
+                          begin.round, num.round, optimizer = optimizer,
+                          train.data = X, eval.data = eval.data,
+                          metric = eval.metric,
+                          epoch.end.callback = epoch.end.callback,
+                          batch.end.callback = batch.end.callback,
+                          kvstore = kvstore,
                           fixed.param = fixed.param,
-                          verbose=verbose)
+                          verbose = verbose)
   return (model)
 }
 
