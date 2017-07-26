@@ -116,6 +116,8 @@ rnn.unroll <- function(num.rnn.layer, seq.len, input.size,
                                     name = "sm",
                                     label = label,
                                     ignore_label = ignore_label)
+  } else {
+    stop("Unsupported config. Please use seq-to-one or one-to-one.")
   }
   
   if (output.last.state) {
@@ -234,7 +236,6 @@ mx.rnn.buckets.train <- function(train.data,
                           fixed.param = fixed.param,
                           verbose = verbose,
                           is.bucket = TRUE)
-  model[["sym_list"]] <- sym_list
   return(model)
 }
 
@@ -245,20 +246,23 @@ mx.rnn.buckets.infer <- function(data.iter,
                                  kvstore = "local",
                                  output.last.state = FALSE,
                                  init.state = NULL,
-                                 cell.type = "lstm") {
+                                 cell.type = "lstm",
+                                 input.names = c("data", "data.mask.array"),
+                                 output.names = NULL) {
   if (class(data.iter) != "BucketIter") {
     stop("BucketIter is required.")
   }
+  
   if (!data.iter$iter.next()) {
     data.iter$reset()
-    if (!data.iter$iter.next()) stop("Empty train.data")
+    if (!data.iter$iter.next()) stop("Empty data")
   }
   
   if (cell.type == "lstm") {
-    num.rnn.layer = ((length(model$arg.params) - 3) / 4)
+    num.rnn.layer = round((length(model$arg.params) - 3) / 4)
     num.hidden = dim(model$arg.params$l1.h2h.weight)[1]
   } else if (cell.type == "gru") {
-    num.rnn.layer = ((length(model$arg.params) - 3) / 8)
+    num.rnn.layer = round((length(model$arg.params) - 3) / 8)
     num.hidden = dim(model$arg.params$l1.gates.h2h.weight)[1]
   }
   
@@ -266,10 +270,8 @@ mx.rnn.buckets.infer <- function(data.iter,
   num.embed = dim(model$arg.params$embed.weight)[1]
   num.label = dim(model$arg.params$cls.bias)
   
-  batch_size <- infer_iter$batch.size
-  
   sym_list <- sapply(data.iter$bucket.names, function(x) {
-    rnn.unroll(num.rnn.layer = num.rnn.layer,
+    mxnet:::rnn.unroll(num.rnn.layer = num.rnn.layer,
                num.hidden = num.hidden,
                seq.len = as.integer(x),
                input.size = input.size,
@@ -281,14 +283,100 @@ mx.rnn.buckets.infer <- function(data.iter,
                output.last.state = output.last.state)
   }, simplify = FALSE, USE.NAMES = TRUE)
   
-  symbol <- sym_list[[names(data.iter$bucketID)]]
-  
   if (is.null(ctx)) ctx <- mx.ctx.default()
   if (is.mx.context(ctx)) ctx <- list(ctx)
   if (!is.list(ctx)) stop("ctx must be mx.context or list of mx.context")
-  ndevice <- length(ctx)
+
+  if (is.null(input.names)) {
+    input.names <- "data"
+  }
   
-  arg.params <- model$arg.params
-  aux.params <- model$aux.params
+  if (is.null(output.names)) {
+    symbol <- sym_list[[names(data.iter$bucketID)]]
+    arg_names <- arguments(symbol)
+    output.names <- arg_names[endsWith(arg_names, "label")]
+  }
   
+  input.shape <- sapply(input.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE)
+  output.shape <- sapply(output.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE)  
+  
+  input.update <- sapply(input.names, function(n) {
+    mx.nd.zeros(input.shape[[n]], ctx[[1]])
+  }, simplify = FALSE, USE.NAMES = TRUE)
+  
+  output.update <- sapply(output.names, function(n) {
+    mx.nd.zeros(output.shape[[n]], ctx[[1]])
+  }, simplify = FALSE, USE.NAMES = TRUE)
+  
+  model$arg.params[names(input.update)] <- input.update
+  model$arg.params[names(output.update)] <- output.update
+  
+  #train.execs <- lapply(1:ndevice, function(i) {
+  arg_lst <- list(symbol = symbol, ctx = ctx[[1]], grad.req = "write")
+  arg_lst <- append(arg_lst, input.shape)
+  arg_lst <- append(arg_lst, output.shape)
+  arg_lst[["fixed.param"]] = fixed.param
+  pexec <- do.call(mx.simple.bind, arg_lst)
+  #})
+  # set the parameters into executors
+  #for (texec in train.execs) {
+  mx.exec.update.arg.arrays(pexec, model$arg.params, match.name = TRUE)
+  mx.exec.update.aux.arrays(pexec, model$aux.params, match.name = TRUE)
+  #}
+  
+  data.iter$reset()
+  packer <- mxnet:::mx.nd.arraypacker()
+  while (data.iter$iter.next()) {
+    dlist <- data.iter$value()
+    dlist <- dlist[names(dlist) %in% arguments(symbol)]
+    dlist <- dlist[names(dlist) %in% input.names]
+    #slices <- lapply(1:ndevice, function(i) {
+    #  s <- input_slice[[i]]
+    #  ret <- sapply(names(dlist), function(n) {mxnet:::mx.nd.slice(dlist[[n]], s$begin, s$end)})
+    #  return(ret)
+    #})
+    
+    symbol <- sym_list[[names(data.iter$bucketID)]]
+    
+    input.shape <- sapply(input.names, function(n) {dim(data.iter$value()[[n]])}, simplify = FALSE)
+    output.shape[[output.names]] <- dim((data.iter$value())$label)
+    #input_slice <- mxnet:::mx.model.slice.shape(input.shape, ndevice)
+    #output_slice <- mxnet:::mx.model.slice.shape(output.shape, ndevice)
+    
+    #train.execs <- lapply(1:ndevice, function(i) {
+    arg_lst <- list(symbol = symbol, ctx = ctx[[1]], grad.req = "write")
+    arg_lst <- append(arg_lst, input.shape)
+    arg_lst <- append(arg_lst, output.shape)
+    arg_lst[["fixed.param"]] <- fixed.param
+    
+    input.update <- sapply(input.names, function(n) {mx.nd.zeros(input.shape[[n]], ctx[[1]])}, simplify = FALSE, USE.NAMES = TRUE)
+    
+    tmp <- pexec$arg.arrays
+    tmp[names(input.update)] <- input.update
+    arg_lst[["arg.arrays"]] <- tmp
+    arg_lst[["aux.arrays"]] <- pexec$aux.arrays
+    pexec <- do.call(mx.simple.bind, arg_lst)
+    #})
+    
+    mx.exec.update.arg.arrays(pexec, dlist, match.name = TRUE)
+    
+    #for (i in 1:ndevice) {
+    #  s <- slices[[i]]
+    #  names(s)[endsWith(names(s), "label")] = arguments(symbol)[endsWith(arguments(symbol), "label")]
+    #  s <- s[names(s) %in% arguments(symbol)]
+    #  mx.exec.update.arg.arrays(train.execs[[i]], s, match.name = TRUE)
+    #}
+    
+    #for (texec in train.execs) {
+    mx.exec.forward(pexec, is.train = FALSE)
+    #}
+    
+    out.preds <- mx.nd.copyto(pexec$ref.outputs[[1]], mx.cpu())
+    
+    #for (i in 1 : ndevice) {
+    packer$push(out.preds)
+    #}
+  }
+  data.iter$reset()
+  return(packer$get())
 }
