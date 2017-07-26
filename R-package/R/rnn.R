@@ -243,7 +243,6 @@ mx.rnn.buckets.infer <- function(data.iter,
                                  model,
                                  config,
                                  ctx = NULL,
-                                 kvstore = "local",
                                  output.last.state = FALSE,
                                  init.state = NULL,
                                  cell.type = "lstm",
@@ -297,32 +296,15 @@ mx.rnn.buckets.infer <- function(data.iter,
     output.names <- arg_names[endsWith(arg_names, "label")]
   }
   
-  input.shape <- sapply(input.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE)
-  output.shape <- sapply(output.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE)  
-  
-  input.update <- sapply(input.names, function(n) {
-    mx.nd.zeros(input.shape[[n]], ctx[[1]])
-  }, simplify = FALSE, USE.NAMES = TRUE)
+  output.shape <- sapply(output.names, function(n) {
+    dim(data.iter$value()[[n]])
+  }, simplify = FALSE)  
   
   output.update <- sapply(output.names, function(n) {
     mx.nd.zeros(output.shape[[n]], ctx[[1]])
   }, simplify = FALSE, USE.NAMES = TRUE)
   
-  model$arg.params[names(input.update)] <- input.update
   model$arg.params[names(output.update)] <- output.update
-  
-  #train.execs <- lapply(1:ndevice, function(i) {
-  arg_lst <- list(symbol = symbol, ctx = ctx[[1]], grad.req = "write")
-  arg_lst <- append(arg_lst, input.shape)
-  arg_lst <- append(arg_lst, output.shape)
-  arg_lst[["fixed.param"]] = fixed.param
-  pexec <- do.call(mx.simple.bind, arg_lst)
-  #})
-  # set the parameters into executors
-  #for (texec in train.execs) {
-  mx.exec.update.arg.arrays(pexec, model$arg.params, match.name = TRUE)
-  mx.exec.update.aux.arrays(pexec, model$aux.params, match.name = TRUE)
-  #}
   
   data.iter$reset()
   packer <- mxnet:::mx.nd.arraypacker()
@@ -330,52 +312,33 @@ mx.rnn.buckets.infer <- function(data.iter,
     dlist <- data.iter$value()
     dlist <- dlist[names(dlist) %in% arguments(symbol)]
     dlist <- dlist[names(dlist) %in% input.names]
-    #slices <- lapply(1:ndevice, function(i) {
-    #  s <- input_slice[[i]]
-    #  ret <- sapply(names(dlist), function(n) {mxnet:::mx.nd.slice(dlist[[n]], s$begin, s$end)})
-    #  return(ret)
-    #})
-    
+
     symbol <- sym_list[[names(data.iter$bucketID)]]
     
-    input.shape <- sapply(input.names, function(n) {dim(data.iter$value()[[n]])}, simplify = FALSE)
-    output.shape[[output.names]] <- dim((data.iter$value())$label)
-    #input_slice <- mxnet:::mx.model.slice.shape(input.shape, ndevice)
-    #output_slice <- mxnet:::mx.model.slice.shape(output.shape, ndevice)
+    input.shape <- sapply(input.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE)
+    output.shape <- sapply(output.names, function(n){dim(data.iter$value()[[n]])}, simplify = FALSE) 
     
-    #train.execs <- lapply(1:ndevice, function(i) {
     arg_lst <- list(symbol = symbol, ctx = ctx[[1]], grad.req = "write")
     arg_lst <- append(arg_lst, input.shape)
     arg_lst <- append(arg_lst, output.shape)
-    arg_lst[["fixed.param"]] <- fixed.param
-    
-    input.update <- sapply(input.names, function(n) {mx.nd.zeros(input.shape[[n]], ctx[[1]])}, simplify = FALSE, USE.NAMES = TRUE)
-    
-    tmp <- pexec$arg.arrays
-    tmp[names(input.update)] <- input.update
-    arg_lst[["arg.arrays"]] <- tmp
-    arg_lst[["aux.arrays"]] <- pexec$aux.arrays
+    arg_lst[["fixed.param"]] <- NULL
     pexec <- do.call(mx.simple.bind, arg_lst)
-    #})
     
+    input.update <- sapply(input.names, function(n) {
+      mx.nd.zeros(input.shape[[n]], ctx[[1]])
+    }, simplify = FALSE, USE.NAMES = TRUE)
+    
+    model$arg.params[names(input.update)] <- input.update
+
+    mx.exec.update.arg.arrays(pexec, model$arg.params, match.name = TRUE)
+    mx.exec.update.aux.arrays(pexec, model$aux.params, match.name = TRUE)
     mx.exec.update.arg.arrays(pexec, dlist, match.name = TRUE)
     
-    #for (i in 1:ndevice) {
-    #  s <- slices[[i]]
-    #  names(s)[endsWith(names(s), "label")] = arguments(symbol)[endsWith(arguments(symbol), "label")]
-    #  s <- s[names(s) %in% arguments(symbol)]
-    #  mx.exec.update.arg.arrays(train.execs[[i]], s, match.name = TRUE)
-    #}
-    
-    #for (texec in train.execs) {
     mx.exec.forward(pexec, is.train = FALSE)
-    #}
     
     out.preds <- mx.nd.copyto(pexec$ref.outputs[[1]], mx.cpu())
     
-    #for (i in 1 : ndevice) {
     packer$push(out.preds)
-    #}
   }
   data.iter$reset()
   return(packer$get())
