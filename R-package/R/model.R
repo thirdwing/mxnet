@@ -196,24 +196,26 @@ mx.model.train <- function(symbol, ctx, input.shape, output.shape,
           arg_lst <- append(arg_lst, output_slice[[i]]$shape)
           arg_lst[["fixed.param"]] <- fixed.param
           
-          input.update <- sapply(input.names, function(n) {
-            mx.nd.zeros(input_slice[[i]]$shape[[n]], ctx[[1]])
-          }, simplify = FALSE, USE.NAMES = TRUE)
+          s <- slices[[i]]
+          names(s)[endsWith(names(s), "label")] = label_name
+          s <- s[names(s) %in% arguments(symbol)]
           
           tmp <- train.execs[[i]]$arg.arrays
-          tmp[names(input.update)] <- input.update
+          tmp[names(s)] <- s
           arg_lst[["arg.arrays"]] <- tmp
           arg_lst[["aux.arrays"]] <- train.execs[[i]]$aux.arrays
           do.call(mx.simple.bind, arg_lst)
         })
+      } else {
+        # copy data to executor
+        for (i in 1:ndevice) {
+          s <- slices[[i]]
+          names(s)[endsWith(names(s), "label")] = label_name
+          s <- s[names(s) %in% arguments(symbol)]
+          mx.exec.update.arg.arrays(train.execs[[i]], s, match.name=TRUE)
+        }  
       }
-      # copy data to executor
-      for (i in 1:ndevice) {
-        s <- slices[[i]]
-        names(s)[endsWith(names(s), "label")] = label_name
-        s <- s[names(s) %in% arguments(symbol)]
-        mx.exec.update.arg.arrays(train.execs[[i]], s, match.name=TRUE)
-      }
+      
       for (texec in train.execs) {
         mx.exec.forward(texec, is.train=TRUE)
       }
