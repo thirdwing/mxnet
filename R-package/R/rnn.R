@@ -6,7 +6,7 @@ rnn.unroll <- function(num.rnn.layer, seq.len, input.size,
                        init.state = NULL,
                        config,
                        cell.type = "lstm",
-                       output_last_state = FALSE) {
+                       output.last.state = FALSE) {
   embed.weight <- mx.symbol.Variable("embed.weight")
   cls.weight <- mx.symbol.Variable("cls.weight")
   cls.bias <- mx.symbol.Variable("cls.bias")
@@ -118,7 +118,7 @@ rnn.unroll <- function(num.rnn.layer, seq.len, input.size,
                                     ignore_label = ignore_label)
   }
   
-  if (output_last_state) {
+  if (output.last.state) {
     group <- mx.symbol.Group(c(unlist(last.states), loss))
     return(group)
   } else {
@@ -236,4 +236,59 @@ mx.rnn.buckets.train <- function(train.data,
                           is.bucket = TRUE)
   model[["sym_list"]] <- sym_list
   return(model)
+}
+
+mx.rnn.buckets.infer <- function(data.iter,
+                                 model,
+                                 config,
+                                 ctx = NULL,
+                                 kvstore = "local",
+                                 output.last.state = FALSE,
+                                 init.state = NULL,
+                                 cell.type = "lstm") {
+  if (class(data.iter) != "BucketIter") {
+    stop("BucketIter is required.")
+  }
+  if (!data.iter$iter.next()) {
+    data.iter$reset()
+    if (!data.iter$iter.next()) stop("Empty train.data")
+  }
+  
+  if (cell.type == "lstm") {
+    num.rnn.layer = ((length(model$arg.params) - 3) / 4)
+    num.hidden = dim(model$arg.params$l1.h2h.weight)[1]
+  } else if (cell.type == "gru") {
+    num.rnn.layer = ((length(model$arg.params) - 3) / 8)
+    num.hidden = dim(model$arg.params$l1.gates.h2h.weight)[1]
+  }
+  
+  input.size = dim(model$arg.params$embed.weight)[2]
+  num.embed = dim(model$arg.params$embed.weight)[1]
+  num.label = dim(model$arg.params$cls.bias)
+  
+  batch_size <- infer_iter$batch.size
+  
+  sym_list <- sapply(data.iter$bucket.names, function(x) {
+    rnn.unroll(num.rnn.layer = num.rnn.layer,
+               num.hidden = num.hidden,
+               seq.len = as.integer(x),
+               input.size = input.size,
+               num.embed = num.embed,
+               num.label = num.label,
+               config = config,
+               init.state = init.state,
+               cell.type = cell.type,
+               output.last.state = output.last.state)
+  }, simplify = FALSE, USE.NAMES = TRUE)
+  
+  symbol <- sym_list[[names(data.iter$bucketID)]]
+  
+  if (is.null(ctx)) ctx <- mx.ctx.default()
+  if (is.mx.context(ctx)) ctx <- list(ctx)
+  if (!is.list(ctx)) stop("ctx must be mx.context or list of mx.context")
+  ndevice <- length(ctx)
+  
+  arg.params <- model$arg.params
+  aux.params <- model$aux.params
+  
 }
