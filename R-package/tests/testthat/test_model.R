@@ -109,6 +109,29 @@ test_that("Classification", {
                   eval.metric = mx.metric.accuracy)
 })
 
+test_that("Multiple loss", {
+  data(Sonar, package = "mlbench")
+  Sonar[, 61] <- as.numeric(Sonar[, 61]) - 1
+  train.ind <- c(1:50, 100:150)
+  train.x <- data.matrix(Sonar[train.ind, 1:60])
+  train.y <- Sonar[train.ind, 61]
+  test.x <- data.matrix(Sonar[-train.ind, 1:60])
+  test.y <- Sonar[-train.ind, 61]
+  
+  data <- mx.symbol.Variable('data')
+  fc1 <- mx.symbol.FullyConnected(data = data, name = 'fc1', num_hidden = 64)
+  act1 <- mx.symbol.Activation(data = fc1, name = 'relu1', act_type = "relu")
+  fc2 <- mx.symbol.FullyConnected(data = act1, name = 'fc2', num_hidden = 10)
+  
+  label1 <- mx.symbol.Variable('out1_label')
+  label2 <- mx.symbol.Variable('out2_label')
+  out1 <- mx.symbol.SoftmaxOutput(data = fc2, name='out1', label=label1)
+  out2 <- mx.symbol.SoftmaxOutput(data = fc2, name='out2', label=label2)
+  mlp <- mx.symbol.Group(out1, out2)
+  
+  
+})
+
 test_that("Fine-tune", {
   GetInception()
   GetCatDog()
