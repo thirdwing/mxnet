@@ -3,11 +3,8 @@
 `NDArray` is the basic vectorized operation unit in MXNet for matrix and tensor computations.
 Users can perform usual calculations as on an R"s array, but with two additional features:
 
-
-
 - Multiple devices: All operations can be run on various devices including
 CPUs and GPUs.
-
 
 - Automatic parallelization: All operations are automatically executed in
    parallel with each other.
@@ -23,19 +20,19 @@ require(mxnet)
 
 ```
 ## Loading required package: mxnet
-## Loading required package: methods
 ```
 
 ```r
 a <- mx.nd.zeros(c(2, 3)) # create a 2-by-3 matrix on cpu
 b <- mx.nd.zeros(c(2, 3), mx.cpu()) # create a 2-by-3 matrix on cpu
-# c <- mx.nd.zeros(c(2, 3), mx.gpu(0)) # create a 2-by-3 matrix on gpu 0, if you have CUDA enabled.
+c <- mx.nd.zeros(c(2, 3), mx.gpu(0)) # create a 2-by-3 matrix on gpu 0, if you have CUDA enabled.
 ```
 
 Typically for CUDA-enabled devices, the device id of a GPU starts from 0.
 That's why we passed in 0 to the GPU id. 
 
 We can initialize an `NDArray` object in various ways:
+
 
 
 ```r
@@ -47,6 +44,7 @@ c <- mx.nd.array(1:5)
 To check the numbers in an `NDArray`, we can simply run:
 
 
+
 ```r
 a <- mx.nd.ones(c(2, 3))
 b <- as.array(a)
@@ -56,6 +54,7 @@ class(b)
 ```
 ## [1] "matrix"
 ```
+
 
 ```r
 b
@@ -74,6 +73,7 @@ b
 You can perform elemental-wise operations on `NDArray` objects, as follows:
 
 
+
 ```r
 a <- mx.nd.ones(c(2, 4)) * 2
 b <- mx.nd.ones(c(2, 4)) / 8
@@ -86,6 +86,7 @@ as.array(a)
 ## [2,]    2    2    2    2
 ```
 
+
 ```r
 as.array(b)
 ```
@@ -95,6 +96,7 @@ as.array(b)
 ## [1,] 0.125 0.125 0.125 0.125
 ## [2,] 0.125 0.125 0.125 0.125
 ```
+
 
 ```r
 c <- a + b
@@ -106,6 +108,7 @@ as.array(c)
 ## [1,] 2.125 2.125 2.125 2.125
 ## [2,] 2.125 2.125 2.125 2.125
 ```
+
 
 ```r
 d <- c / a - 5
@@ -121,6 +124,7 @@ as.array(d)
 If two `NDArray`s are located on different devices, we need to explicitly move them to the same one. For instance:
 
 
+
 ```r
 a <- mx.nd.ones(c(2, 3)) * 2
 b <- mx.nd.ones(c(2, 3), mx.gpu()) / 8
@@ -128,9 +132,16 @@ c <- mx.nd.copyto(a, mx.gpu()) * b
 as.array(c)
 ```
 
+```
+##      [,1] [,2] [,3]
+## [1,] 0.25 0.25 0.25
+## [2,] 0.25 0.25 0.25
+```
+
 ### Loading and Saving
 
 You can save a list of `NDArray` object to your disk with `mx.nd.save`:
+
 
 
 ```r
@@ -139,6 +150,7 @@ mx.nd.save(list(a), "temp.ndarray")
 ```
 
 You can load it back easily:
+
 
 
 ```r
@@ -153,6 +165,7 @@ as.array(a[[1]])
 ```
 
 We can directly save data to and load it from a distributed file system, such as Amazon S3 and HDFS:
+
 
 
 ```r
@@ -172,6 +185,7 @@ efficiency. Furthermore, because copying data between CPUs and GPUs are also exp
 It's hard to find the code that can be executed in parallel by eye. In the
 following example, `a <- a + 1` and `c <- c * 3` can be executed in parallel, but `a <- a + 1` and
 `b <- b * 3` should be in sequential.
+
 
 
 ```r
@@ -197,10 +211,4 @@ parallel.
 The actual computations are finished, allowing us to copy the results someplace else, such as `as.array(a)` or `mx.nd.save(a, "temp.dat")`. To write highly parallelized codes, we only need to postpone when we need
 the results.
 
-## Next Steps
-* [Symbol](http://mxnet.io/tutorials/r/symbol.html)
-* [Write and use callback functions](http://mxnet.io/tutorials/r/CallbackFunctionTutorial.html)
-* [Neural Networks with MXNet in Five Minutes](http://mxnet.io/tutorials/r/fiveMinutesNeuralNetwork.html)
-* [Classify Real-World Images with Pre-trained Model](http://mxnet.io/tutorials/r/classifyRealImageWithPretrainedModel.html)
-* [Handwritten Digits Classification Competition](http://mxnet.io/tutorials/r/mnistCompetition.html)
-* [Character Language Model using RNN](http://mxnet.io/tutorials/r/charRnnModel.html)
+<!-- INSERT SOURCE DOWNLOAD BUTTONS -->

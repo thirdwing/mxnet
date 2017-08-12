@@ -7,8 +7,21 @@ The computational unit `NDArray` requires a way to construct neural networks. MX
 The following code creates a two-layer perceptron network:
 
 
+
 ```r
 require(mxnet)
+```
+
+```
+## Loading required package: mxnet
+```
+
+```
+## Use suppressPackageStartupMessages() to eliminate package startup
+## messages.
+```
+
+```r
 net <- mx.symbol.Variable("data")
 net <- mx.symbol.FullyConnected(data=net, name="fc1", num_hidden=128)
 net <- mx.symbol.Activation(data=net, name="relu1", act_type="relu")
@@ -23,6 +36,7 @@ class(net)
 ## [1] "mxnet"
 ```
 
+
 Each symbol takes a (unique) string name. *Variable* often defines the inputs,
 or free variables. Other symbols take a symbol as the input (*data*),
 and may accept other hyper parameters, such as the number of hidden neurons (*num_hidden*)
@@ -32,12 +46,13 @@ A symbol can be viewed as a function that takes several arguments, whose
 names are automatically generated and can be retrieved with the following command:
 
 
+
 ```r
 arguments(net)
 ```
 
 ```
-## [1] "data"       "fc1_weight" "fc1_bias"   "fc2_weight" "fc2_bias"
+## [1] "data"       "fc1_weight" "fc1_bias"   "fc2_weight" "fc2_bias"  
 ## [6] "out_label"
 ```
 
@@ -49,6 +64,7 @@ The arguments are the parameters need by each symbol:
 - *out_label*: The label needed by the loss
 
 We can also specify the automatically generated names explicitly:
+
 
 
 ```r
@@ -68,6 +84,7 @@ MXNet provides well-optimized symbols for
 commonly used layers in deep learning. You can also define new operators
 in Python. The following example first performs an element-wise add between two
 symbols, then feeds them to the fully connected operator:
+
 
 
 ```r
@@ -122,9 +139,5 @@ composition. Because MXNet does more in-place memory allocation, it can
 be more memory efficient than CXXNet and gets to the same runtime with
 greater flexibility.
 
-## Next Steps
-* [Write and use callback functions](http://mxnet.io/tutorials/r/CallbackFunctionTutorial.html)
-* [Neural Networks with MXNet in Five Minutes](http://mxnet.io/tutorials/r/fiveMinutesNeuralNetwork.html)
-* [Classify Real-World Images with Pre-trained Model](http://mxnet.io/tutorials/r/classifyRealImageWithPretrainedModel.html)
-* [Handwritten Digits Classification Competition](http://mxnet.io/tutorials/r/mnistCompetition.html)
-* [Character Language Model using RNN](http://mxnet.io/tutorials/r/charRnnModel.html)
+
+<!-- INSERT SOURCE DOWNLOAD BUTTONS -->

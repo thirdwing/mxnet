@@ -1,14 +1,13 @@
-Customized loss function
-======================================
+# Customized loss function
 
 This tutorial provides guidelines for using customized loss function in network construction.
 
-Model Training Example
-----------------------
+## Model Training Example
 
 Let's begin with a small regression example. We can build and train a regression model with the following code:
 
-``` r
+
+```r
 data(BostonHousing, package = "mlbench")
 BostonHousing[, sapply(BostonHousing, is.factor)] <-
   as.numeric(as.character(BostonHousing[, sapply(BostonHousing, is.factor)]))
@@ -23,9 +22,11 @@ test.y = BostonHousing[--test.ind, 14]
 require(mxnet)
 ```
 
-    ## Loading required package: mxnet
+```
+## Loading required package: mxnet
+```
 
-``` r
+```r
 data <- mx.symbol.Variable("data")
 label <- mx.symbol.Variable("label")
 fc1 <- mx.symbol.FullyConnected(data, num_hidden = 14, name = "fc1")
@@ -45,28 +46,36 @@ model <- mx.model.FeedForward.create(lro, X = train.x, y = train.y,
                                      epoch.end.callback = NULL)
 ```
 
-    ## Start training with 1 devices
+```
+## Start training with 1 devices
+```
 
-``` r
+```r
 pred <- predict(model, test.x)
 ```
 
-    ## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
+## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
 
-``` r
+```r
 sum((test.y - pred[1,])^2) / length(test.y)
 ```
 
-    ## [1] 0.2485236
+```
+## [1] 0.2485236
+```
 
-Besides the `LinearRegressionOutput`, we also provide `LogisticRegressionOutput` and `MAERegressionOutput`. However, this might not be enough for real-world models. You can provide your own loss function by using `mx.symbol.MakeLoss` when constructing the network.
+Besides the `LinearRegressionOutput`, we also provide `LogisticRegressionOutput` and `MAERegressionOutput`.
+However, this might not be enough for real-world models. You can provide your own loss function
+by using `mx.symbol.MakeLoss` when constructing the network.
 
-How to Use Your Own Loss Function
----------------------------------
+## How to Use Your Own Loss Function
 
 We still use our previous example, but this time we use `mx.symbol.MakeLoss` to minimize the `(pred-label)^2`
 
-``` r
+
+```r
 data <- mx.symbol.Variable("data")
 label <- mx.symbol.Variable("label")
 fc1 <- mx.symbol.FullyConnected(data, num_hidden = 14, name = "fc1")
@@ -77,7 +86,8 @@ lro2 <- mx.symbol.MakeLoss(mx.symbol.square(mx.symbol.Reshape(fc2, shape = 0) - 
 
 Then we can train the network just as usual.
 
-``` r
+
+```r
 mx.set.seed(0)
 model2 <- mx.model.FeedForward.create(lro2, X = train.x, y = train.y,
                                       ctx = mx.cpu(),
@@ -90,25 +100,35 @@ model2 <- mx.model.FeedForward.create(lro2, X = train.x, y = train.y,
                                       epoch.end.callback = NULL)
 ```
 
-    ## Start training with 1 devices
+```
+## Start training with 1 devices
+```
 
-We should get very similar results because we are actually minimizing the same loss function. However, the result is quite different.
+We should get very similar results because we are actually minimizing the same loss function.
+However, the result is quite different.
 
-``` r
+
+```r
 pred2 <- predict(model2, test.x)
 ```
 
-    ## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
+## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
 
-``` r
+```r
 sum((test.y - pred2)^2) / length(test.y)
 ```
 
-    ## [1] 1.234584
+```
+## [1] 1.234584
+```
 
-This is because output of `mx.symbol.MakeLoss` is the gradient of loss with respect to the input data. We can get the real prediction as below.
+This is because output of `mx.symbol.MakeLoss` is the gradient of loss with respect to the input data.
+We can get the real prediction as below.
 
-``` r
+
+```r
 internals = internals(model2$symbol)
 fc_symbol = internals[[match("fc2_output", outputs(internals))]]
 
@@ -121,17 +141,22 @@ class(model3) <- "MXFeedForwardModel"
 pred3 <- predict(model3, test.x)
 ```
 
-    ## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
+## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
 
-``` r
+```r
 sum((test.y - pred3[1,])^2) / length(test.y)
 ```
 
-    ## [1] 0.248294
+```
+## [1] 0.248294
+```
 
 We have provided many operations on the symbols. An example of `|pred-label|` can be found below.
 
-``` r
+
+```r
 lro_abs <- mx.symbol.MakeLoss(mx.symbol.abs(mx.symbol.Reshape(fc2, shape = 0) - label))
 mx.set.seed(0)
 model4 <- mx.model.FeedForward.create(lro_abs, X = train.x, y = train.y,
@@ -146,9 +171,11 @@ model4 <- mx.model.FeedForward.create(lro_abs, X = train.x, y = train.y,
                                       epoch.end.callback = NULL)
 ```
 
-    ## Start training with 1 devices
+```
+## Start training with 1 devices
+```
 
-``` r
+```r
 internals = internals(model4$symbol)
 fc_symbol = internals[[match("fc2_output", outputs(internals))]]
 
@@ -161,15 +188,21 @@ class(model5) <- "MXFeedForwardModel"
 pred5 <- predict(model5, test.x)
 ```
 
-    ## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
+## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
 
-``` r
+```r
 sum(abs(test.y - pred5[1,])) / length(test.y)
 ```
 
-    ## [1] 0.7056902
+```
+## [1] 0.7056902
+```
 
-``` r
+
+
+```r
 lro_mae <- mx.symbol.MAERegressionOutput(fc2, name = "lro")
 mx.set.seed(0)
 model6 <- mx.model.FeedForward.create(lro_mae, X = train.x, y = train.y,
@@ -184,23 +217,26 @@ model6 <- mx.model.FeedForward.create(lro_mae, X = train.x, y = train.y,
                                       epoch.end.callback = NULL)
 ```
 
-    ## Start training with 1 devices
+```
+## Start training with 1 devices
+```
 
-``` r
+```r
 pred6 <- predict(model6, test.x)
 ```
 
-    ## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
+## Warning in mx.model.select.layout.predict(X, model): Auto detect layout of input matrix, use rowmajor..
+```
 
-``` r
+```r
 sum(abs(test.y - pred6[1,])) / length(test.y)
 ```
 
-    ## [1] 0.7056902
+```
+## [1] 0.7056902
+```
 
+We got the same result as expected.
 
-## Next Steps
-* [Neural Networks with MXNet in Five Minutes](http://mxnet.io/tutorials/r/fiveMinutesNeuralNetwork.html)
-* [Classify Real-World Images with a PreTrained Model](http://mxnet.io/tutorials/r/classifyRealImageWithPretrainedModel.html)
-* [Handwritten Digits Classification Competition](http://mxnet.io/tutorials/r/mnistCompetition.html)
-* [Character Language Model Using RNN](http://mxnet.io/tutorials/r/charRnnModel.html)
+<!-- INSERT SOURCE DOWNLOAD BUTTONS -->
